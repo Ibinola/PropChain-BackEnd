@@ -19,5 +19,16 @@ export interface User {
   preferences: Record<string, unknown> | null;
   privacySettings: Record<string, unknown> | null;
 }
+//  * Flexible enough for email/password and Web3 users
+//  */
+export type CreateUserInput = {
+  email: string;
+  password?: string;
+  walletAddress?: string;
+  role?: UserRole;
+  roleId?: string;
+};
+
+export type UpdateUserInput = Partial<CreateUserInput>;
 
 export type PrismaUser = User;
