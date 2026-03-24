@@ -17,6 +17,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   jti?: string;
+  sid?: string;
   /** Refresh rotation id; present only on refresh JWTs. */
   rid?: string;
   /** Distinguishes access vs refresh tokens when both are JWTs. */
@@ -79,12 +80,16 @@ export interface MfaVerifyRequest {
 }
 
 export interface SessionInfo {
+  sessionId: string;
   userId: string;
   jti: string;
+  refreshSessionId: string;
   createdAt: string;
   userAgent: string;
   ip: string;
   lastActivity?: string;
+  absoluteExpiresAt?: string;
+  fingerprint?: string;
 }
 
 export interface LoginAttempt {

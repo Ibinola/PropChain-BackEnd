@@ -15,4 +15,6 @@ export const tokenRevocationRedisKeys = {
   accessRevoked: (jti: string) => `blacklisted_token:${jti}`,
   refreshSession: (refreshSessionId: string) => `refresh_session:${refreshSessionId}`,
   userRefreshSession: (userId: string) => `user_refresh_rid:${userId}`,
+  activeSession: (userId: string, sessionId: string) => `active_session:${userId}:${sessionId}`,
+  accessSession: (jti: string) => `access_session:${jti}`,
 } as const;
