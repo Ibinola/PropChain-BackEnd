@@ -112,7 +112,7 @@ export class AuthService {
       throw new InvalidCredentialsException();
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = await bcrypt.compare(password, user.password as string);
     if (!isPasswordValid) {
       this.logger.warn('Email validation failed: Invalid password', { email });
       throw new InvalidCredentialsException();
@@ -151,7 +151,7 @@ export class AuthService {
         throw new TokenExpiredException('Invalid refresh token');
       }
 
-      const user = await this.userService.findById(payload.sub);
+      const user = (await this.userService.findById(payload.sub)) as { id: string; email: string; [key: string]: any };
       if (!user) {
         this.logger.warn('Refresh token validation failed: User not found', {
           userId: payload.sub,
@@ -228,7 +228,11 @@ export class AuthService {
   }
 
   async forgotPassword(email: string) {
-    const user = await this.userService.findByEmail(email);
+    const user = (await this.userService.findByEmail(email)) as {
+      id: string;
+      email: string;
+      [key: string]: any;
+    } | null;
     if (!user) {
       this.logger.log('Forgot password request for non-existent user', { email });
       return { message: 'If email exists, a reset link has been sent' };
@@ -362,7 +366,11 @@ export class AuthService {
       }
       const ttl = this.getSessionExpiry(session.lastActivity || session.createdAt);
       if (ttl > 0) {
-        await this.redisService.setex(tokenRevocationRedisKeys.accessRevoked(session.jti), Math.ceil(ttl / 1000), userId);
+        await this.redisService.setex(
+          tokenRevocationRedisKeys.accessRevoked(session.jti),
+          Math.ceil(ttl / 1000),
+          userId,
+        );
       }
     }
     await this.redisService.del(tokenRevocationRedisKeys.activeSession(userId, sessionId));
@@ -474,11 +482,7 @@ export class AuthService {
         fingerprint: sessionMeta.fingerprint,
       }),
     );
-    await this.redisService.setex(
-      tokenRevocationRedisKeys.userRefreshSession(user.id),
-      refreshTtl,
-      refreshSessionId,
-    );
+    await this.redisService.setex(tokenRevocationRedisKeys.userRefreshSession(user.id), refreshTtl, refreshSessionId);
 
     const sessionExpiry = this.configService.get<number>('SESSION_TIMEOUT', 3600);
     await this.redisService.setex(tokenRevocationRedisKeys.accessSession(jti), sessionExpiry, sessionId);
@@ -563,7 +567,11 @@ export class AuthService {
       sessionExpiry,
       JSON.stringify(session),
     );
-    await this.redisService.setex(tokenRevocationRedisKeys.accessSession(session.jti), sessionExpiry, session.sessionId);
+    await this.redisService.setex(
+      tokenRevocationRedisKeys.accessSession(session.jti),
+      sessionExpiry,
+      session.sessionId,
+    );
   }
 
   private buildFingerprint(requestMeta?: { ip?: string; userAgent?: string }): string {

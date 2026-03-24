@@ -47,6 +47,9 @@ import { AuditModule } from './common/audit/audit.module';
 import { RbacModule } from './rbac/rbac.module';
 import { AuditController } from './common/controllers/audit.controller';
 
+// API Versioning
+import { ApiVersionModule } from './common/api-version';
+
 // Middleware
 import { AuthRateLimitMiddleware } from './auth/middleware/auth.middleware';
 import { HeaderValidationMiddleware } from './security/middleware/header-validation.middleware';
@@ -126,6 +129,9 @@ import { ObservabilityModule } from './observability/observability.module';
     AuditModule,
     RbacModule,
     ObservabilityModule,
+
+    // API Versioning
+    ApiVersionModule,
   ],
   controllers: [
     AuditController, // Add the audit controller

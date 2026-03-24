@@ -574,7 +574,7 @@ export class PropertiesService {
     return `property:nearby:${latitude}:${longitude}:${radiusKm}:${this.serializeCacheInput(query || {})}`;
   }
 
-  private serializeCacheInput(input: Record<string, unknown>): string {
+  private serializeCacheInput(input: PropertyQueryDto | Record<string, unknown>): string {
     return Object.entries(input)
       .filter(([, value]) => value !== undefined && value !== null)
       .sort(([left], [right]) => left.localeCompare(right))

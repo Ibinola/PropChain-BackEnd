@@ -132,7 +132,14 @@ export class UserService {
    * const user = await userService.findByEmail('user@example.com');
    * ```
    */
-  async findByEmail(email: string) {
+  async findByEmail(email: string): Promise<{
+    id: string;
+    email: string;
+    password: string | null;
+    role: string;
+    isVerified: boolean;
+    [key: string]: any;
+  } | null> {
     return this.cacheService.wrap(
       `user:email:${email}`,
       () =>
@@ -486,7 +493,8 @@ export class UserService {
 
     return this.cacheService.wrap(
       `user:followers:${userId}:${limit}`,
-      () => this.monitorQuery('users.getFollowers', { userId, limit }, () => this.prisma.userRelationship.findMany(query)),
+      () =>
+        this.monitorQuery('users.getFollowers', { userId, limit }, () => this.prisma.userRelationship.findMany(query)),
       { l1Ttl: 30, l2Ttl: 120, tags: ['user', `user:${userId}`] },
     );
   }
@@ -520,7 +528,8 @@ export class UserService {
 
     return this.cacheService.wrap(
       `user:following:${userId}:${limit}`,
-      () => this.monitorQuery('users.getFollowing', { userId, limit }, () => this.prisma.userRelationship.findMany(query)),
+      () =>
+        this.monitorQuery('users.getFollowing', { userId, limit }, () => this.prisma.userRelationship.findMany(query)),
       { l1Ttl: 30, l2Ttl: 120, tags: ['user', `user:${userId}`] },
     );
   }
