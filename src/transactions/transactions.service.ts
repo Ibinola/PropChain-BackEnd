@@ -41,7 +41,7 @@ export class TransactionsService {
     return this.prisma.transaction.create({
       data: {
         ...dto,
-        type: dto.type as TransactionType,
+        type: dto.type as any,
         status: 'PENDING',
         platformFee: fees.platformFee,
         gasFee: fees.estimatedGas,
