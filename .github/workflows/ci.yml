@@ -10,6 +10,30 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_ENV: test
+  PORT: "3000"
+  API_PREFIX: api
+  CORS_ORIGIN: http://localhost:3001
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/propchain_ci?sslmode=disable
+  TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/propchain_ci?sslmode=disable
+  E2E_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/propchain_ci?sslmode=disable
+  REDIS_URL: redis://127.0.0.1:6379/0
+  TEST_REDIS_URL: redis://127.0.0.1:6379/0
+  E2E_REDIS_URL: redis://127.0.0.1:6379/0
+  REDIS_HOST: 127.0.0.1
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  JWT_SECRET: ciJwtSigningKeyAlphaNumericValue0001
+  JWT_REFRESH_SECRET: ciRefreshSigningKeyAlphaNumeric0002
+  ENCRYPTION_KEY: C1EncKeyAlphaNumericValue0000001
+  SESSION_SECRET: ciSessionSigningKeyAlphaNumeric0003
+  EMAIL_FROM: ci@propchain.local
+  RPC_URL: http://127.0.0.1:8545
+  PRIVATE_KEY: 0x1111111111111111111111111111111111111111111111111111111111111111
+  STORAGE_PROVIDER: memory
+  MOCK_BLOCKCHAIN: "true"
+
 jobs:
   setup:
     name: Setup & Cache
@@ -90,11 +114,11 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
           POSTGRES_DB: propchain_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d propchain_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -126,6 +150,12 @@ jobs:
         run: |
           timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
           timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Apply Prisma Migrations
+        run: npx prisma migrate deploy
 
       - name: Run Integration Tests
         run: npm run test:integration
@@ -142,11 +172,11 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
           POSTGRES_DB: propchain_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d propchain_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -178,6 +208,12 @@ jobs:
         run: |
           timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
           timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Apply Prisma Migrations
+        run: npx prisma migrate deploy
 
       - name: Run E2E Tests
         run: npm run test:e2e
@@ -205,12 +241,30 @@ jobs:
 
       - name: Run Security Tests
         run: npm run test:security
-        env:
-          NODE_ENV: test
+
+  test-migrations:
+    name: Migration Safety
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Migration Safety Checks
+        run: npm run migrate:test
 
   build:
     name: Build (Production Target)
-    needs: [lint, test-unit]
+    needs: [lint, test-unit, test-migrations]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -347,11 +401,11 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
           POSTGRES_DB: propchain_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d propchain_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -379,14 +433,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install k6
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gnupg2 software-properties-common
-          sudo wget -q -O - https://dl.k6.io/key.gpg | sudo apt-key add -
-          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-          sudo apt-get update
-          sudo apt-get install -y k6
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+          path: dist
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Apply Prisma Migrations
+        run: npx prisma migrate deploy
 
       - name: Wait for services
         run: |
@@ -395,16 +452,42 @@ jobs:
 
       - name: Start API in background
         run: |
-          npm run start &
-          sleep 30
+          npm run start:ci > api.log 2>&1 &
+          echo $! > api.pid
+
+      - name: Wait for API liveness
+        run: |
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:3000/api/v1/health/liveness > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat api.log
+          exit 1
 
       - name: Run load tests
         run: npm run loadtest:ci
         env:
-          API_URL: http://localhost:3000
+          API_URL: http://127.0.0.1:3000
+          HEALTH_PATH: /api/v1/health/liveness
           NODE_ENV: test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/propchain_test
           REDIS_URL: redis://localhost:6379
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f api.pid ]; then
+            kill "$(cat api.pid)" || true
+          fi
+
+      - name: Upload API logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-api-log
+          path: api.log
 
       - name: Upload k6 results
         uses: actions/upload-artifact@v4
@@ -414,7 +497,7 @@ jobs:
 
   deploy-staging:
     name: Deploy to Staging
-    needs: [build, test-integration, test-e2e, test-security, observability-test]
+    needs: [build, test-integration, test-e2e, test-security, test-migrations, observability-test]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     environment: staging
@@ -460,6 +543,6 @@ jobs:
 
       - name: Deploy to Production Cluster
         run: echo "🚀 Deploying to production environment... (Blue/Green Strategy Placeholder)"
-        # Actual deployment strategy logic (Blue/Green or Canary):
+        # Actual deployment strategy (Blue/Green or Canary):
         # - Implement traffic routing switch
         # - Health checks check
