@@ -58,6 +58,9 @@
     "db:backup": "bash scripts/backup.sh",
     "db:restore": "bash scripts/restore.sh",
     "db:benchmark": "ts-node test/database/performance.benchmark.ts",
+    "bench:middleware": "ts-node benchmarks/chains/run-benchmarks.ts",
+    "bench:middleware:quick": "ts-node benchmarks/chains/run-benchmarks.ts --iterations=100 --concurrency=5",
+    "bench:middleware:full": "ts-node benchmarks/chains/run-benchmarks.ts --iterations=5000 --concurrency=20",
     "loadtest:ci": "bash scripts/loadtest-ci.sh",
     "docs:generate": "typedoc --skipErrorChecking"
   },
