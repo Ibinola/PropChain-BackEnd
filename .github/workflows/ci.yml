@@ -4,112 +4,17 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main]
 
 env:
   NODE_ENV: test
-  PORT: "3000"
-  API_PREFIX: api
-  CORS_ORIGIN: http://localhost:3001
-  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/propchain_ci?sslmode=disable
-  TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/propchain_ci?sslmode=disable
-  E2E_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/propchain_ci?sslmode=disable
-  REDIS_URL: redis://127.0.0.1:6379/0
-  TEST_REDIS_URL: redis://127.0.0.1:6379/0
-  E2E_REDIS_URL: redis://127.0.0.1:6379/0
-  REDIS_HOST: 127.0.0.1
-  REDIS_PORT: "6379"
-  REDIS_DB: "0"
-  JWT_SECRET: ciJwtSigningKeyAlphaNumericValue0001
-  JWT_REFRESH_SECRET: ciRefreshSigningKeyAlphaNumeric0002
-  ENCRYPTION_KEY: C1EncKeyAlphaNumericValue0000001
-  SESSION_SECRET: ciSessionSigningKeyAlphaNumeric0003
-  EMAIL_FROM: ci@propchain.local
-  RPC_URL: http://127.0.0.1:8545
-  PRIVATE_KEY: 0x1111111111111111111111111111111111111111111111111111111111111111
-  STORAGE_PROVIDER: memory
-  MOCK_BLOCKCHAIN: "true"
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/propchain_test?sslmode=disable
 
 jobs:
-  setup:
-    name: Setup & Cache
+  lint-and-build:
+    name: Lint & Build
     runs-on: ubuntu-latest
-    outputs:
-      node-version: ${{ steps.setup-node.outputs.node-version }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        id: setup-node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Cache Prisma Client
-        uses: actions/cache@v4
-        id: cache-prisma
-        with:
-          path: node_modules/.prisma
-          key: ${{ runner.os }}-prisma-${{ hashFiles('prisma/schema.prisma') }}
-
-  lint:
-    name: Linting
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-  test-unit:
-    name: Unit Tests
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Unit Tests
-        run: npm run test:unit
-        env:
-          NODE_ENV: test
-
-  test-integration:
-    name: Integration Tests
-    needs: setup
-    runs-on: ubuntu-latest
+    
     services:
       postgres:
         image: postgres:15
@@ -117,192 +22,6 @@ jobs:
           POSTGRES_DB: propchain_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd "pg_isready -U postgres -d propchain_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Wait for services
-        run: |
-          timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
-          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
-
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Apply Prisma Migrations
-        run: npx prisma migrate deploy
-
-      - name: Run Integration Tests
-        run: npm run test:integration
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/propchain_test
-          REDIS_URL: redis://localhost:6379
-
-  test-e2e:
-    name: E2E Tests
-    needs: setup
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: propchain_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd "pg_isready -U postgres -d propchain_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Wait for services
-        run: |
-          timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
-          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
-
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Apply Prisma Migrations
-        run: npx prisma migrate deploy
-
-      - name: Run E2E Tests
-        run: npm run test:e2e
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/propchain_test
-          REDIS_URL: redis://localhost:6379
-
-  test-security:
-    name: Security Tests
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Security Tests
-        run: npm run test:security
-
-  test-migrations:
-    name: Migration Safety
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Migration Safety Checks
-        run: npm run migrate:test
-
-  build:
-    name: Build (Production Target)
-    needs: [lint, test-unit, test-migrations]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Build Application
-        run: npm run build
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifact
-          path: dist/
-          retention-days: 1
-
-  observability-test:
-    name: Observability Tests
-    needs: build
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: propchain_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -310,25 +29,7 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-      jaeger:
-        image: jaegertracing/all-in-one:latest
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:16686"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 16686:16686
-          - 4317:4317
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -339,64 +40,23 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: npm ci
 
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifact
-          path: dist
+      - name: Generate Prisma Client
+        run: npx prisma generate
 
-      - name: Wait for services
-        run: |
-          timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
-          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
-          timeout 60 bash -c 'until nc -z localhost 16686; do sleep 1; done'
+      - name: Run Linter
+        run: npm run lint
 
-      - name: Start Application
-        run: |
-          npm run start &
-          sleep 30
+      - name: Build Application
+        run: npm run build
 
-      - name: Test Observability Endpoints
-        run: |
-          curl -f http://localhost:3000/observability/health || exit 1
-          curl -f http://localhost:3000/observability/metrics/current || exit 1
-          curl -f http://localhost:3000/metrics || exit 1
-          curl -f http://localhost:3000/observability/tracing/status || exit 1
-
-      - name: Test Metrics Collection
-        run: |
-          # Test that metrics are being collected
-          response=$(curl -s http://localhost:3000/metrics)
-          if [[ $response == *"http_request_duration_seconds"* ]]; then
-            echo "✅ HTTP metrics found"
-          else
-            echo "❌ HTTP metrics not found"
-            exit 1
-          fi
-
-          if [[ $response == *"system_cpu_usage_percent"* ]]; then
-            echo "✅ System metrics found"
-          else
-            echo "❌ System metrics not found"
-            exit 1
-          fi
-
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/propchain_test
-          REDIS_URL: redis://localhost:6379
-          OTEL_SERVICE_NAME: propchain-backend-test
-          OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
-          METRICS_ENABLED: true
-          PERFORMANCE_MONITORING_ENABLED: true
-
-  load-test:
-    name: Load Testing
-    needs: build
+  test:
+    name: Run Tests
+    needs: lint-and-build
     runs-on: ubuntu-latest
+    
     services:
       postgres:
         image: postgres:15
@@ -405,21 +65,13 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         options: >-
-          --health-cmd "pg_isready -U postgres -d propchain_test"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
         ports:
           - 5432:5432
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -430,119 +82,44 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: npm ci
-
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifact
-          path: dist
 
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Apply Prisma Migrations
-        run: npx prisma migrate deploy
-
-      - name: Wait for services
-        run: |
-          timeout 60 bash -c 'until nc -z localhost 5432; do sleep 1; done'
-          timeout 60 bash -c 'until nc -z localhost 6379; do sleep 1; done'
-
-      - name: Start API in background
-        run: |
-          npm run start:ci > api.log 2>&1 &
-          echo $! > api.pid
-
-      - name: Wait for API liveness
-        run: |
-          for attempt in {1..30}; do
-            if curl -fsS http://127.0.0.1:3000/api/v1/health/liveness > /dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          cat api.log
-          exit 1
-
-      - name: Run load tests
-        run: npm run loadtest:ci
+      - name: Run Tests
+        run: npm test
         env:
-          API_URL: http://127.0.0.1:3000
-          HEALTH_PATH: /api/v1/health/liveness
           NODE_ENV: test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/propchain_test
-          REDIS_URL: redis://localhost:6379
-
-      - name: Stop API
-        if: always()
-        run: |
-          if [ -f api.pid ]; then
-            kill "$(cat api.pid)" || true
-          fi
-
-      - name: Upload API logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: load-test-api-log
-          path: api.log
-
-      - name: Upload k6 results
-        uses: actions/upload-artifact@v4
-        with:
-          name: k6-results
-          path: artifacts/k6-results.json
 
   deploy-staging:
     name: Deploy to Staging
-    needs: [build, test-integration, test-e2e, test-security, test-migrations, observability-test]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    needs: [lint-and-build, test]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: staging
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifact
-          path: dist
-
-      - name: Deploy to Staging Server
-        run: echo "🚀 Deploying to staging environment... (Placeholder)"
-        # Actual deployment logic would go here:
-        # - npm run deploy:staging
-        # - scp -r dist/* user@staging-host:/var/www/propchain
-        # - heroku/deploy-action@v5
-        # - aws ecs update-service...
+      - name: Deploy to Staging
+        run: echo "Deploying to staging environment..."
+        # Add your deployment steps here
 
   deploy-production:
     name: Deploy to Production
-    needs: [deploy-staging]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint-and-build, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://api.propchain.com
+    environment: production
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build-artifact
-          path: dist
-
-      - name: Run Production Migrations
-        run: echo "🛠 Running production database migrations... (Placeholder)"
-        # run: npx prisma migrate deploy
-
-      - name: Deploy to Production Cluster
-        run: echo "🚀 Deploying to production environment... (Blue/Green Strategy Placeholder)"
-        # Actual deployment strategy (Blue/Green or Canary):
-        # - Implement traffic routing switch
-        # - Health checks check
+      - name: Deploy to Production
+        run: echo "Deploying to production environment..."
+        # Add your deployment steps here

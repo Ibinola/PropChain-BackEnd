@@ -1,806 +1,170 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// PropChain - Real Estate Blockchain Platform
+// Core Database Schema
 
-
-// Prisma client generator
 generator client {
   provider = "prisma-client-js"
 }
 
-
-// Database connection configuration
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id            String    @id @default(cuid())
-  email         String    @unique // Unique index for fast user lookup by email
-  walletAddress String?   @unique @map("wallet_address") // Unique index for wallet address
-  role          UserRole  @default(USER)
-  roleId        String?   @map("role_id")
-  password      String?
-  isVerified    Boolean   @default(false) @map("is_verified")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  // Advanced profile fields
-  bio           String?
-  location      String?
-  avatarUrl     String?   @map("avatar_url")
-
-  // Preferences and privacy
-  preferences   Json?
-  privacySettings Json?   @map("privacy_settings")
-  exportRequestedAt DateTime? @map("export_requested_at")
-
-  // Relationships
-  followers     UserRelationship[] @relation("Followers")
-  following     UserRelationship[] @relation("Following")
-
-  // Activity
-  activities    UserActivity[]
-
-  // Password history for rotation policy
-  passwordHistory PasswordHistory[]
-
-  properties           Property[]
-  receivedTransactions Transaction[] @relation("UserTransactions")
-  userRole             Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  roleChanges          RoleChangeLog[]
-  documents            Document[]
-  exportJobs           ExportJob[]
-  reports              PropertyReport[]
-
-  // Indexes for common query patterns
-  @@index([email]) // For searching users by email
-  @@index([walletAddress]) // For searching users by wallet address
-  @@index([role]) // For filtering users by role
-  @@index([createdAt]) // For sorting/filtering by creation date
-  @@index([isVerified])
-  @@index([location])
-  @@map("users")
-}
-
-// User activity tracking
-model UserActivity {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  action    String
-  metadata  Json?
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([action])
-  @@index([createdAt])
-  @@index([userId, action, createdAt(sort: Desc)])
-  @@map("user_activities")
-}
-
-// User relationship (followers, connections)
-model UserRelationship {
-  id           String   @id @default(cuid())
-  followerId   String   @map("follower_id")
-  followingId  String   @map("following_id")
-  status       String   @default("active")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  follower     User     @relation("Followers", fields: [followerId], references: [id], onDelete: Cascade)
-  following    User     @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
-
-  @@unique([followerId, followingId])
-  @@index([followerId])
-  @@index([followingId])
-  @@index([followingId, status, createdAt(sort: Desc)])
-  @@index([followerId, status, createdAt(sort: Desc)])
-  @@map("user_relationships")
-}
-
-model Property {
-  id                String         @id @default(cuid())
-  title             String
-  description       String?
-  location          String
-  price             Decimal
-  status            PropertyStatus @default(DRAFT)
-  ownerId           String         @map("owner_id")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
-
-  // Soft delete fields for issues #258 and #259
-  deletedAt         DateTime?      @map("deleted_at")
-  isDeleted         Boolean        @default(false) @map("is_deleted")
-
-  // Valuation fields
-  estimatedValue    Decimal?       @map("estimated_value")
-  valuationDate     DateTime?      @map("valuation_date")
-  valuationConfidence Float?        @map("valuation_confidence")
-  valuationSource   String?        @map("valuation_source")
-  lastValuationId   String?        @map("last_valuation_id")
-  
-  // Property features for valuation
-  bedrooms          Int?
-  bathrooms         Int?
-  squareFootage     Decimal?       @map("square_footage")
-  yearBuilt         Int?           @map("year_built")
-  propertyType      String?        @map("property_type")
-  lotSize           Decimal?       @map("lot_size")
-  
-  owner             User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  transactions      Transaction[]
-  valuations        PropertyValuation[]
-  documents         Document[]
-  withdrawals       Withdrawal[]
-
-  latitude   Float?
-  longitude  Float?
-
-  rejectionReason   String?        @map("rejection_reason")
-
-  // SEO metadata fields for issue #260
-  metaTitle         String?        @map("meta_title")
-  metaDescription   String?        @map("meta_description")
-  metaKeywords      String[]       @map("meta_keywords")
-
-  // Relationships
-  reports           PropertyReport[]
-  versions          PropertyVersion[]
-  availabilitySlots AvailabilitySlot[]
-
-  // Indexes for geospatial queries and filtering
-  @@index([latitude, longitude]) // For location-based queries
-  @@index([ownerId]) // For filtering properties by owner
-  @@index([status]) // For filtering by property status
-  @@index([createdAt]) // For sorting/filtering by creation date
-  @@index([location]) // For searching/filtering by location
-  @@index([price]) // For price filtering/sorting
-  @@index([status, createdAt(sort: Desc)]) // For property listings by status and date
-  @@index([ownerId, createdAt(sort: Desc)]) // For owner's properties by date
-  @@index([status, price]) // For property search by status and price
-  @@index([isDeleted]) // For filtering soft-deleted properties
-  @@index([deletedAt]) // For cleanup of old soft-deleted properties
-  @@unique([ownerId, title, location]) // Prevent duplicate properties for same owner with same title and location
-  @@unique([latitude, longitude, ownerId]) // Prevent duplicate properties at same coordinates for same owner
-  @@map("properties")
-}
-
-model PropertyValuation {
-  id              String   @id @default(cuid())
-  propertyId      String   @map("property_id")
-  estimatedValue  Decimal  @map("estimated_value")
-  confidenceScore Float    @map("confidence_score")
-  valuationDate   DateTime @map("valuation_date")
-  source          String
-  marketTrend     String?  @map("market_trend")
-  featuresUsed    Json?    @map("features_used")
-  rawData         Json?    @map("raw_data")
-  createdAt       DateTime @default(now())
-  
-  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-
-  // Index for fast lookup by property and date
-  @@index([propertyId])
-  @@index([valuationDate])
-  @@index([propertyId, valuationDate(sort: Desc)])
-  @@unique([propertyId, valuationDate, source]) // Prevent duplicate valuations for same property on same date from same source
-  @@map("property_valuations")
-}
-
-model Transaction {
-  id            String            @id @default(cuid())
-  fromAddress   String            @map("from_address")
-  toAddress     String            @map("to_address")
-  amount        Decimal
-  txHash        String?           @unique @map("tx_hash") // Unique constraint for blockchain transaction hash
-  status        TransactionStatus  @default(PENDING)
-  type          TransactionType
-  propertyId    String?           @map("property_id")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
-
-  buyerId           String
-  sellerId          String
-  currency          String
-  blockchainHash    String? @unique // Additional unique constraint for blockchain hash
-  blockNumber       Int?
-  confirmations     Int      @default(0)
-  escrowWallet      String?
-  gasFee            Decimal?
-  platformFee       Decimal?
-  disputeReason     String?
-
-  property  Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  recipient User?     @relation("UserTransactions", fields: [toAddress], references: [walletAddress])
-  documents Document[]
-
-  // Indexes for common transaction queries
-  @@index([buyerId]) // For filtering by buyer
-  @@index([sellerId]) // For filtering by seller
-  @@index([fromAddress]) // For filtering by sender
-  @@index([toAddress]) // For filtering by recipient
-  @@index([status]) // For filtering by transaction status
-  @@index([createdAt]) // For sorting/filtering by creation date
-  @@index([propertyId]) // For filtering by property
-  @@index([txHash]) // For searching by transaction hash (redundant with unique but useful for queries)
-  @@index([blockchainHash]) // For searching by blockchain hash
-  @@index([blockNumber]) // For filtering by block number
-  @@index([confirmations]) // For filtering by confirmation count
-  @@unique([buyerId, sellerId, propertyId, amount, createdAt]) // Prevent duplicate transactions between same parties for same property
-  @@map("transactions")
-}
-
-model Donation {
-  id                    String         @id @default(cuid())
-  provider              String
-  providerTransactionId String         @unique @map("provider_transaction_id")
-  amount                Decimal
-  currency              String
-  donorName             String?        @map("donor_name")
-  donorEmail            String?        @map("donor_email")
-  blockchainHash        String?        @map("blockchain_hash")
-  status                DonationStatus @default(PENDING)
-  userId                String?        @map("user_id")
-  projectId             String?        @map("project_id")
-  createdAt             DateTime       @default(now()) @map("created_at")
-  updatedAt             DateTime       @updatedAt @map("updated_at")
-
-  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  project  Property? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  @@index([provider])
-  @@index([status])
-  @@index([userId])
-  @@index([projectId])
-  @@map("donations")
-}
-
-enum DonationStatus {
-  PENDING
-  CONFIRMED
-  FAILED
-}
-
-enum WithdrawalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  PAID
-}
-
-model Withdrawal {
-  id              String           @id @default(cuid())
-  projectId       String?          @map("project_id")
-  amount          Decimal
-  status          WithdrawalStatus @default(PENDING)
-  transactionHash String?          @map("transaction_hash")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-
-  project Property? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  @@index([projectId])
-  @@map("withdrawals")
-}
-
-model Role {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  level       Int      @default(0)
-  isSystem    Boolean  @default(false) @map("is_system")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  users           User[]
-  permissions     RolePermission[]
-  roleChangeLogs  RoleChangeLog[]
-
-  @@map("roles")
-}
-
-model Permission {
-  id          String   @id @default(cuid())
-  resource    String
-  action      String
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  roles RolePermission[]
-
-  @@unique([resource, action])
-  @@map("permissions")
-}
-
-model RolePermission {
-  id           String   @id @default(cuid())
-  roleId       String   @map("role_id")
-  permissionId String   @map("permission_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, permissionId])
-  @@map("role_permissions")
-}
-
-model RoleChangeLog {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  roleId    String   @map("role_id")
-  oldRoleId String?  @map("old_role_id")
-  changedBy String?  @map("changed_by")
-  reason    String?
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@map("role_change_logs")
-}
-
-model AuditLog {
-  id        String   @id @default(cuid())
-  tableName String   @map("table_name")
-  operation String
-  oldData   Json?    @map("old_data")
-  newData   Json?    @map("new_data")
-  userId    String?  @map("user_id")
-  timestamp DateTime @default(now())
-
-  @@index([timestamp(sort: Desc)])
-  @@index([userId, timestamp(sort: Desc)])
-  @@index([tableName, timestamp(sort: Desc)])
-  @@index([operation, timestamp(sort: Desc)])
-  @@map("audit_logs")
-}
-
-
-model SystemLog {
-  id        String   @id @default(cuid())
-  logLevel  String   @map("log_level")
-  message    String
-  context    String?
-  timestamp DateTime @default(now())
-
-  @@index([timestamp(sort: Desc)])
-  @@index([logLevel, timestamp(sort: Desc)])
-  @@index([context, timestamp(sort: Desc)])
-  @@map("system_logs")
-}
-
-
-
-
+// User roles in the system
 enum UserRole {
-  ADMIN
-  AGENT
-  SELLER
-  BUYER
-  VIEWER
   USER
-  VERIFIED_USER
-  MENTOR
+  AGENT
+  ADMIN
 }
 
+// Property listing status
 enum PropertyStatus {
   DRAFT
   PENDING
-  APPROVED
-  LISTED
+  ACTIVE
+  UNDER_CONTRACT
   SOLD
-  REMOVED
-  PUBLISHED
+  RENTED
+  ARCHIVED
 }
 
-enum TransactionStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  CANCELLED
-
-  ESCROW_FUNDED
-  BLOCKCHAIN_SUBMITTED
-  CONFIRMING
-  CONFIRMED
-  DISPUTED
-  REFUNDED
-}
-
+// Transaction types
 enum TransactionType {
+  SALE
   PURCHASE
   TRANSFER
-  ESCROW
-  REFUND
 }
 
-enum DocumentType {
-  TITLE_DEED
-  OWNERSHIP_CERTIFICATE
-  INSPECTION_REPORT
-  APPRAISAL
-  INSURANCE
-  TAX_DOCUMENT
-  CONTRACT
-  IDENTITY
-  OTHER
-}
-
-enum DocumentStatus {
+// Transaction status
+enum TransactionStatus {
   PENDING
-  VERIFIED
-  REJECTED
-  EXPIRED
-}
-
-model Document {
-  id            String         @id @default(cuid())
-  name          String
-  type          DocumentType
-  status        DocumentStatus @default(PENDING)
-  fileUrl       String         @map("file_url")
-  fileHash      String?        @unique @map("file_hash") // Unique constraint for file hash to prevent duplicate uploads
-  mimeType      String?        @map("mime_type")
-  fileSize      Int?           @map("file_size")
-  description   String?
-  propertyId    String?        @map("property_id")
-  transactionId String?        @map("transaction_id")
-  uploadedById  String         @map("uploaded_by_id")
-  verifiedAt    DateTime?      @map("verified_at")
-  expiresAt     DateTime?      @map("expires_at")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-
-  property    Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  uploadedBy  User         @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
-
-  @@index([propertyId])
-  @@index([transactionId])
-  @@index([uploadedById])
-  @@index([type])
-  @@index([status])
-  @@index([fileHash]) // Index for file hash lookups
-  @@index([createdAt])
-  @@unique([propertyId, name, fileHash]) // Prevent duplicate documents for same property with same name and hash
-  @@unique([uploadedById, name, fileHash]) // Prevent duplicate uploads by same user with same name and hash
-  @@map("documents")
-}
-
-model ApiKey {
-  id             String    @id @default(cuid())
-  name           String
-  key            String    @unique
-  keyPrefix      String    @map("key_prefix")
-  keyVersion     Int       @default(1) @map("key_version")
-  scopes         String[]
-  requestCount   BigInt    @default(0) @map("request_count")
-  lastUsedAt     DateTime? @map("last_used_at")
-  isActive       Boolean   @default(true) @map("is_active")
-  rateLimit      Int?      @map("rate_limit")
-  lastRotatedAt  DateTime? @map("last_rotated_at")
-  rotationDueAt  DateTime? @map("rotation_due_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-
-  usageLogs ApiKeyUsageLog[]
-
-  @@index([keyPrefix])
-  @@index([isActive])
-  @@index([createdAt])
-  @@index([rotationDueAt])
-  @@map("api_keys")
-}
-
-model ApiKeyUsageLog {
-  id           String   @id @default(cuid())
-  apiKeyId     String   @map("api_key_id")
-  endpoint     String
-  method       String
-  statusCode   Int      @map("status_code")
-  responseTime Int      @map("response_time")
-  ipAddress    String?  @map("ip_address")
-  userAgent    String?  @map("user_agent")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
-
-  @@index([apiKeyId])
-  @@index([endpoint])
-  @@index([createdAt])
-  @@map("api_key_usage_logs")
-}
-
-model PasswordHistory {
-  id           String   @id @default(cuid())
-  userId       String   @map("user_id")
-  passwordHash String   @map("password_hash")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([createdAt])
-  @@map("password_history")
-}
-
-model ExportJob {
-  id           String     @id @default(cuid())
-  userId       String     @map("user_id")
-  dataType     String     @map("data_type")
-  format       String
-  status       String     @default("pending")
-  downloadUrl  String?    @map("download_url")
-  startDate    DateTime?  @map("start_date")
-  endDate      DateTime?  @map("end_date")
-  fields       Json?      // Array of field names
-  filters      Json?      // Export filters
-  totalRecords Int        @default(0) @map("total_records")
-  fileSize     Int?       @map("file_size")
-  errorMessage  String?    @map("error_message")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  startedAt    DateTime?  @map("started_at")
-  completedAt  DateTime?  @map("completed_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
-  @@index([dataType])
-  @@index([createdAt])
-  @@index([completedAt])
-  @@map("export_jobs")
-}
-
-// KYC Verification model
-model KycVerification {
-  id                 String          @id @default(cuid())
-  userId             String          @map("user_id")
-  providerReferenceId String         @unique @map("provider_reference_id")
-  provider           String
-  documentType       String          @map("document_type")
-  status             KycStatus       @default(PENDING)
-  riskScore          Float?          @map("risk_score")
-  verifiedAt         DateTime?       @map("verified_at")
-  expiresAt          DateTime?       @map("expires_at")
-  rejectionReason    String?         @map("rejection_reason")
-  metadata           Json?
-  createdAt          DateTime        @default(now()) @map("created_at")
-  updatedAt          DateTime        @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
-  @@index([providerReferenceId])
-  @@index([createdAt])
-  @@index([expiresAt])
-  @@map("kyc_verifications")
-}
-
-// AML Check model
-model AmlCheck {
-  id                String          @id @default(cuid())
-  userId            String          @map("user_id")
-  walletAddress     String          @map("wallet_address")
-  status            AmlStatus       @default(CLEAR)
-  sanctionsMatch    Boolean         @default(false) @map("sanctions_match")
-  pepMatch          Boolean         @default(false) @map("pep_match")
-  adverseMediaMatch Boolean         @default(false) @map("adverse_media_match")
-  riskLevel         String          @map("risk_level")
-  riskScore         Float           @map("risk_score")
-  provider          String
-  metadata          Json?
-  screenedAt        DateTime        @map("screened_at")
-  createdAt         DateTime        @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([walletAddress])
-  @@index([status])
-  @@index([screenedAt])
-  @@map("aml_checks")
-}
-
-// Compliance Alert model
-model ComplianceAlert {
-  id          String              @id @default(cuid())
-  userId      String              @map("user_id")
-  alertType   String              @map("alert_type")
-  severity    AlertSeverity       @default(MEDIUM)
-  status      AlertStatus         @default(OPEN)
-  details     Json?
-  resolvedAt  DateTime?           @map("resolved_at")
-  resolvedBy  String?             @map("resolved_by")
-  resolution  String?
-  createdAt   DateTime            @default(now()) @map("created_at")
-  updatedAt   DateTime            @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([alertType])
-  @@index([status])
-  @@index([severity])
-  @@index([createdAt])
-  @@map("compliance_alerts")
-}
-
-// Data Residency model
-model DataResidency {
-  id                      String       @id @default(cuid())
-  userId                  String       @unique @map("user_id")
-  preferredRegion         String       @map("preferred_region")
-  assignedRegion          String       @map("assigned_region")
-  countryCode             String       @map("country_code")
-  storageLocation         String       @map("storage_location")
-  crossBorderTransferAllowed Boolean   @default(false) @map("cross_border_transfer_allowed")
-  applicableRegulations   String[]     @map("applicable_regulations")
-  createdAt               DateTime     @default(now()) @map("created_at")
-  updatedAt               DateTime     @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([assignedRegion])
-  @@index([countryCode])
-  @@map("data_residencies")
-}
-
-// GDPR Request model
-model GdprRequest {
-  id                     String            @id @default(cuid())
-  userId                 String            @map("user_id")
-  requestType            GdprRequestType   @map("request_type")
-  status                 GdprRequestStatus @default(PENDING)
-  details                String?
-  fields                 Json?
-  expectedCompletionDate DateTime          @map("expected_completion_date")
-  completedAt            DateTime?         @map("completed_at")
-  resultData             Json?             @map("result_data")
-  failureReason          String?           @map("failure_reason")
-  createdAt              DateTime          @default(now()) @map("created_at")
-  updatedAt              DateTime          @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([requestType])
-  @@index([status])
-  @@index([createdAt])
-  @@index([expectedCompletionDate])
-  @@map("gdpr_requests")
-}
-
-// Consent model
-model Consent {
-  id           String        @id @default(cuid())
-  userId       String        @map("user_id")
-  consentType  String        @map("consent_type")
-  granted      Boolean       @default(false)
-  grantedAt    DateTime      @map("granted_at")
-  withdrawnAt  DateTime?     @map("withdrawn_at")
-  version      String        @default("1.0")
-  ipAddress    String?       @map("ip_address")
-  userAgent    String?       @map("user_agent")
-  notes        String?
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([consentType])
-  @@index([granted])
-  @@unique([userId, consentType])
-  @@map("consents")
-}
-
-enum KycStatus {
-  PENDING
-  IN_REVIEW
-  VERIFIED
-  REJECTED
-  EXPIRED
-}
-
-enum AmlStatus {
-  CLEAR
-  FLAGGED
-  UNDER_REVIEW
-  BLOCKED
-}
-
-enum AlertSeverity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-}
-
-enum AlertStatus {
-  OPEN
-  IN_PROGRESS
-  RESOLVED
-  CLOSED
-}
-
-enum GdprRequestType {
-  DATA_EXPORT
-  DATA_DELETION
-  DATA_CORRECTION
-  CONSENT_WITHDRAWAL
-}
-
-enum GdprRequestStatus {
-  PENDING
-  IN_PROGRESS
   COMPLETED
+  CANCELLED
   FAILED
 }
 
-model PropertyReport {
-  id              String   @id @default(cuid())
-  propertyId      String   @map("property_id")
-  reporterId      String   @map("reporter_id")
-  reason          String
-  details         String?
-  status          ReportStatus @default(PENDING)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+// Document types
+enum DocumentType {
+  TITLE_DEED
+  INSPECTION_REPORT
+  APPRAISAL
+  CONTRACT
+  DISCLOSURE
+  PHOTO
+  FLOOR_PLAN
+}
 
-  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  reporter        User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+// User model
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  phone         String?
+  role          UserRole  @default(USER)
+  isVerified    Boolean   @default(false) @map("is_verified")
+  avatar        String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  @@index([propertyId])
-  @@index([reporterId])
+  // Relations
+  properties    Property[]
+  buyerTransactions  Transaction[] @relation("BuyerTransactions")
+  sellerTransactions Transaction[] @relation("SellerTransactions")
+  documents     Document[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// Property model
+model Property {
+  id              String          @id @default(uuid())
+  title           String
+  description     String?
+  address         String
+  city            String
+  state           String
+  zipCode         String          @map("zip_code")
+  country         String          @default("USA")
+  price           Decimal
+  propertyType    String          @map("property_type") // House, Apartment, Condo, Land, etc.
+  bedrooms        Int?
+  bathrooms       Decimal?
+  squareFeet      Decimal?        @map("square_feet")
+  lotSize         Decimal?        @map("lot_size")
+  yearBuilt       Int?            @map("year_built")
+  status          PropertyStatus  @default(DRAFT)
+  ownerId         String          @map("owner_id")
+  latitude        Float?
+  longitude       Float?
+  features        String[]        // Array of features (pool, garage, etc.)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  owner           User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  transactions    Transaction[]
+  documents       Document[]
+
+  @@index([ownerId])
   @@index([status])
-  @@map("property_reports")
+  @@index([city, state])
+  @@index([price])
+  @@index([propertyType])
+  @@map("properties")
 }
 
-enum ReportStatus {
-  PENDING
-  UNDER_REVIEW
-  RESOLVED
-  DISMISSED
-}
+// Transaction model
+model Transaction {
+  id              String              @id @default(uuid())
+  propertyId      String              @map("property_id")
+  buyerId         String              @map("buyer_id")
+  sellerId        String              @map("seller_id")
+  amount          Decimal
+  type            TransactionType
+  status          TransactionStatus   @default(PENDING)
+  blockchainHash  String?             @map("blockchain_hash")
+  contractAddress String?             @map("contract_address")
+  notes           String?
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
 
-model PropertyVersion {
-  id              String   @id @default(cuid())
-  propertyId      String   @map("property_id")
-  versionNumber   Int      @map("version_number")
-  data            Json
-  changedById     String   @map("changed_by_id")
-  changeReason    String?  @map("change_reason")
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  // Relations
+  property        Property            @relation(fields: [propertyId], references: [id])
+  buyer           User                @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  seller          User                @relation("SellerTransactions", fields: [sellerId], references: [id])
 
   @@index([propertyId])
-  @@index([versionNumber])
-  @@unique([propertyId, versionNumber])
-  @@map("property_versions")
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([blockchainHash])
+  @@map("transactions")
 }
 
-model AvailabilitySlot {
-  id              String   @id @default(cuid())
-  propertyId      String   @map("property_id")
-  startTime       DateTime @map("start_time")
-  endTime         DateTime @map("end_time")
-  isReserved      Boolean  @default(false) @map("is_reserved")
-  reservedById    String?  @map("reserved_by_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+// Document model
+model Document {
+  id              String        @id @default(uuid())
+  propertyId      String?       @map("property_id")
+  userId          String        @map("user_id")
+  documentType    DocumentType  @map("document_type")
+  fileName        String        @map("file_name")
+  fileUrl         String        @map("file_url")
+  fileSize        Int           @map("file_size") // in bytes
+  mimeType        String        @map("mime_type")
+  description     String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
-  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  // Relations
+  property        Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([propertyId])
-  @@index([startTime, endTime])
-  @@map("availability_slots")
+  @@index([userId])
+  @@index([documentType])
+  @@map("documents")
 }
