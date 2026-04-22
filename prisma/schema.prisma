@@ -59,6 +59,13 @@ enum DocumentType {
   FLOOR_PLAN
 }
 
+// Verification document status
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // User model
 model User {
   id            String    @id @default(uuid())
@@ -84,6 +91,8 @@ model User {
   apiKeys       ApiKey[]
   passwordHistory PasswordHistory[]
   blacklistedTokens BlacklistedToken[]
+  preferences   UserPreferences?
+  verificationDocuments VerificationDocument[]
 
   @@index([email])
   @@index([role])
@@ -224,4 +233,49 @@ model Document {
   @@index([userId])
   @@index([documentType])
   @@map("documents")
+}
+
+// User Preferences model
+model UserPreferences {
+  id              String        @id @default(uuid())
+  userId          String        @unique @map("user_id")
+  language        String        @default("en")
+  currency        String        @default("USD")
+  timezone        String        @default("UTC")
+  emailNotifications Boolean    @default(true) @map("email_notifications")
+  smsNotifications  Boolean     @default(false) @map("sms_notifications")
+  propertyAlerts    Boolean     @default(true) @map("property_alerts")
+  marketUpdates     Boolean     @default(true) @map("market_updates")
+  theme           String        @default("light")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_preferences")
+}
+
+// Verification Document model
+model VerificationDocument {
+  id              String            @id @default(uuid())
+  userId          String            @map("user_id")
+  documentType    String            @map("document_type") // ID_CARD, PASSPORT, DRIVER_LICENSE, PROOF_OF_ADDRESS, etc.
+  fileName        String            @map("file_name")
+  fileUrl         String            @map("file_url")
+  fileSize        Int               @map("file_size") // in bytes
+  mimeType        String            @map("mime_type")
+  status          VerificationStatus @default(PENDING)
+  adminNotes      String?           @map("admin_notes")
+  reviewedBy      String?           @map("reviewed_by")
+  reviewedAt      DateTime?         @map("reviewed_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([documentType])
+  @@map("verification_documents")
 }
