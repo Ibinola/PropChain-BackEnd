@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ApiKey, TokenType, User } from '../types/prisma.types';
 import { Prisma } from '../types/prisma.types';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { PrismaService } from '../database/prisma.service';
@@ -52,6 +53,7 @@ export class AuthService {
   private readonly refreshTokenTtlSeconds: number;
   private readonly jwtSecret: string;
   private readonly jwtRefreshSecret: string;
+  private readonly bcryptRounds: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -70,6 +72,7 @@ export class AuthService {
       this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d',
       7 * 24 * 60 * 60,
     );
+    this.bcryptRounds = parseInt(this.configService.get<string>('BCRYPT_ROUNDS') ?? '12', 10);
   }
 
   private transactionsToActivityItems(transactions: any[], type: string) {
@@ -88,7 +91,7 @@ export class AuthService {
       throw new BadRequestException('A user with that email already exists');
     }
 
-    const passwordHash = await hashPassword(data.password);
+    const passwordHash = await hashPassword(data.password, this.bcryptRounds);
     const user = await this.prisma.user.create({
       data: {
         email: data.email,
@@ -115,6 +118,10 @@ export class AuthService {
     const user = await this.usersService.findByEmail(data.email);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (user.isBlocked) {
+      throw new UnauthorizedException('Your account has been blocked. Please contact support.');
     }
 
     const passwordMatches = await comparePassword(data.password, user.password);
@@ -179,13 +186,17 @@ export class AuthService {
       throw new UnauthorizedException('User no longer exists');
     }
 
+    if (user.isBlocked) {
+      throw new UnauthorizedException('Your account has been blocked');
+    }
+
     if (user.id !== payload.sub) {
       throw new UnauthorizedException('Refresh token does not match the authenticated user');
     }
 
     await this.blacklistToken({
       jti: payload.jti,
-      tokenType: TokenType.REFRESH,
+      tokenType: 'REFRESH',
       expiresAt: new Date((payload.exp ?? 0) * 1000),
       userId: user.id,
     });
@@ -202,7 +213,7 @@ export class AuthService {
       const accessPayload = this.verifyToken(accessToken, this.jwtSecret) as JwtPayload;
       await this.blacklistToken({
         jti: accessPayload.jti,
-        tokenType: TokenType.ACCESS,
+        tokenType: 'ACCESS',
         expiresAt: new Date((accessPayload.exp ?? 0) * 1000),
         userId: user.sub,
       });
@@ -216,7 +227,7 @@ export class AuthService {
 
       await this.blacklistToken({
         jti: refreshPayload.jti,
-        tokenType: TokenType.REFRESH,
+        tokenType: 'REFRESH',
         expiresAt: new Date((refreshPayload.exp ?? 0) * 1000),
         userId: user.sub,
       });
@@ -430,7 +441,7 @@ export class AuthService {
       );
     }
 
-    const newPasswordHash = await hashPassword(data.newPassword);
+    const newPasswordHash = await hashPassword(data.newPassword, this.bcryptRounds);
 
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.user.update({
@@ -579,7 +590,7 @@ export class AuthService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return apiKeys.map((apiKey: ApiKey) => this.toApiKeyResponse(apiKey));
+    return apiKeys.map((apiKey: any) => this.toApiKeyResponse(apiKey));
   }
 
   async rotateApiKey(user: AuthUserPayload, apiKeyId: string) {
@@ -658,6 +669,10 @@ export class AuthService {
 
     if (!apiKey || apiKey.revokedAt || (apiKey.expiresAt && apiKey.expiresAt < new Date())) {
       throw new UnauthorizedException('Invalid API key');
+    }
+
+    if (apiKey.user.isBlocked) {
+      throw new UnauthorizedException('User account is blocked');
     }
 
     await this.prisma.apiKey.update({
@@ -748,7 +763,7 @@ export class AuthService {
 
   private async blacklistToken(data: {
     jti: string;
-    tokenType: TokenType;
+    tokenType: 'ACCESS' | 'REFRESH';
     expiresAt: Date;
     userId?: string;
   }) {
@@ -767,7 +782,7 @@ export class AuthService {
     return `pc_${randomToken(24)}`;
   }
 
-  private toApiKeyResponse(apiKey: ApiKey) {
+  private toApiKeyResponse(apiKey: any) {
     return {
       id: apiKey.id,
       name: apiKey.name,
