@@ -41,6 +41,8 @@ import {
 import { AuthUserPayload } from './types/auth-user.type';
 
 import { UserRole } from '../types/prisma.types';
+import { LoginRateLimitService } from './login-rate-limit.service';
+import { UserRole } from '@prisma/client';
 
 type JwtPayload = {
   sub: string;
@@ -66,6 +68,7 @@ export class AuthService {
     private readonly sessionsService: SessionsService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    private readonly rateLimitService: LoginRateLimitService,
   ) {
     this.jwtSecret = this.configService.get<string>('JWT_SECRET') ?? 'propchain-access-secret';
     this.jwtRefreshSecret =
@@ -120,9 +123,21 @@ export class AuthService {
     };
   }
 
-  async login(data: LoginDto) {
+  async login(data: LoginDto, ipAddress?: string, userAgent?: string) {
+    // Check if account is locked out
+    const isLocked = await this.rateLimitService.isAccountLocked(data.email);
+    if (isLocked) {
+      const lockoutInfo = await this.rateLimitService.getLockoutInfo(data.email);
+      const remainingMinutes = lockoutInfo?.remainingLockoutMinutes ?? 0;
+      throw new UnauthorizedException(
+        `Account temporarily locked due to too many failed login attempts. Please try again in ${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}.`,
+      );
+    }
+
     const user = await this.usersService.findByEmail(data.email);
     if (!user) {
+      // Record failed attempt even if user doesn't exist (prevent enumeration)
+      await this.rateLimitService.recordFailedAttempt(data.email, ipAddress, userAgent);
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -130,8 +145,27 @@ export class AuthService {
       throw new UnauthorizedException('Your account has been blocked. Please contact support.');
     }
 
+    if (user.isDeactivated) {
+      throw new UnauthorizedException(
+        'Your account has been deactivated. Please contact support to reactivate your account.',
+      );
+    }
+
     const passwordMatches = await comparePassword(data.password, user.password);
     if (!passwordMatches) {
+      // Record failed login attempt
+      const shouldLock = await this.rateLimitService.recordFailedAttempt(
+        data.email,
+        ipAddress,
+        userAgent,
+      );
+
+      if (shouldLock) {
+        throw new UnauthorizedException(
+          'Account locked due to too many failed login attempts. Please try again in 15 minutes.',
+        );
+      }
+
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -169,6 +203,9 @@ export class AuthService {
       }
     }
 
+    // Record successful login
+    await this.rateLimitService.recordSuccessfulAttempt(data.email, ipAddress, userAgent);
+
     const tokens = await this.issueTokenPair(user);
     return {
       user: sanitizeUser(user),
@@ -194,6 +231,10 @@ export class AuthService {
 
     if (user.isBlocked) {
       throw new UnauthorizedException('Your account has been blocked');
+    }
+
+    if (user.isDeactivated) {
+      throw new UnauthorizedException('Your account has been deactivated');
     }
 
     if (user.id !== payload.sub) {
@@ -922,5 +963,32 @@ export class AuthService {
         });
       }
     });
+  }
+
+  async unlockAccount(email: string) {
+    await this.rateLimitService.unlockAccount(email);
+    return { message: 'Account unlocked successfully. You can now try to log in again.' };
+  }
+
+  async getLoginStatus(email: string) {
+    const lockoutInfo = await this.rateLimitService.getLockoutInfo(email);
+
+    if (!lockoutInfo) {
+      return {
+        email,
+        isLocked: false,
+        failedAttempts: 0,
+        canAttemptLogin: true,
+      };
+    }
+
+    return {
+      email,
+      isLocked: lockoutInfo.isLocked,
+      failedAttempts: lockoutInfo.failedAttempts,
+      unlockAt: lockoutInfo.unlockAt,
+      remainingLockoutMinutes: lockoutInfo.remainingLockoutMinutes,
+      canAttemptLogin: !lockoutInfo.isLocked,
+    };
   }
 }
