@@ -264,6 +264,7 @@ export class AuthService {
     }
 
     const [, buyerTransactions, sellerTransactions, documents, apiKeys] = await Promise.all([
+    const [properties, buyerTransactions, sellerTransactions, documents, apiKeys] = await Promise.all([
       this.prisma.property.findMany({
         where: { ownerId: user.sub },
         orderBy: { createdAt: 'desc' },
