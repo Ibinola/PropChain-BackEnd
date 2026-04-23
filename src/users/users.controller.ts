@@ -1,6 +1,26 @@
-import { Controller, Get, Post, Body, Param, Put, Delete, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  HttpStatus,
+  InternalServerErrorException,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { Response } from 'express';
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
+import { AuthUserPayload } from '../auth/types/auth-user.type';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -61,23 +81,17 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/export')
-  async exportData(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUserPayload,
-  ) {
-    // Check authorization: User can only export their own data, or must be an ADMIN
-    if (user.sub !== id && user.role !== 'ADMIN') {
-      throw new ForbiddenException('You are not authorized to export this user\'s data');
+  async exportData(@Param('id') id: string, @CurrentUser() user: AuthUserPayload) {
+    if (user.sub !== id && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("You are not authorized to export this user's data");
     }
 
     try {
       const exportData = await this.usersService.exportPersonalData(id);
-      
+
       // Ensure exports directory exists
       const exportsDir = path.join(process.cwd(), 'exports');
-      if (!fs.existsSync(exportsDir)) {
-        fs.mkdirSync(exportsDir);
-      }
+      fs.mkdirSync(exportsDir, { recursive: true });
 
       const filename = `export-${id}-${crypto.randomUUID()}.json`;
       const filepath = path.join(exportsDir, filename);
@@ -90,7 +104,7 @@ export class UsersController {
         expiresIn: '24 hours',
       };
     } catch (error) {
-      if (error.message === 'User not found') {
+      if (error instanceof Error && error.message === 'User not found') {
         throw new NotFoundException(error.message);
       }
       throw new InternalServerErrorException('Failed to generate export');
@@ -110,11 +124,9 @@ export class UsersController {
       throw new NotFoundException('Export file not found');
     }
 
-    // Authorization check for the filename: export-{userId}-{uuid}.json
-    const filenameParts = filename.split('-');
-    const ownerId = filenameParts[1];
+    const ownerId = this.extractExportOwnerId(filename);
 
-    if (user.sub !== ownerId && user.role !== 'ADMIN') {
+    if (user.sub !== ownerId && user.role !== UserRole.ADMIN) {
       throw new ForbiddenException('You are not authorized to download this export');
     }
 
@@ -128,5 +140,18 @@ export class UsersController {
         }
       }
     });
+  }
+
+  private extractExportOwnerId(filename: string) {
+    const match =
+      /^export-(.+)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i.exec(
+        filename,
+      );
+
+    if (!match) {
+      throw new NotFoundException('Invalid export file');
+    }
+
+    return match[1];
   }
 }

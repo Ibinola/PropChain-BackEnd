@@ -208,8 +208,13 @@ export class UsersService implements OnModuleInit {
       throw new Error('User not found');
     }
 
-    // Sanitize user data
-    const { password, twoFactorSecret, twoFactorBackupCodes, ...safeUser } = user;
+    // Remove sensitive authentication secrets from the export payload.
+    const safeUser = {
+      ...user,
+      password: undefined,
+      twoFactorSecret: undefined,
+      twoFactorBackupCodes: undefined,
+    };
 
     return {
       metadata: {
