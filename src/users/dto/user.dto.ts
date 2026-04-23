@@ -1,4 +1,5 @@
-import { IsEmail, IsOptional, IsString, MinLength, IsIn, IsObject } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength, IsIn, IsObject, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdatePreferencesDto {
   @IsOptional()
@@ -98,4 +99,29 @@ export class UpdateUserDto {
     start: string;
     end: string;
   };
+}
+export class SearchUsersDto {
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number = 10;
 }

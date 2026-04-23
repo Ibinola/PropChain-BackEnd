@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { CreateUserDto, UpdateUserDto, UpdatePreferencesDto } from './dto/user.dto';
+import { CreateUserDto, UpdateUserDto, UpdatePreferencesDto, SearchUsersDto } from './dto/user.dto';
 import { DeactivateAccountDto, ReactivateAccountDto } from './dto/deactivation.dto';
 import { hashPassword, sanitizeUser } from '../auth/security.utils';
 
@@ -284,6 +284,72 @@ export class UsersService {
         createdAt: true,
       },
     });
+  }
+
+  async search(filters: SearchUsersDto) {
+    const { q, email, name, page = 1, limit = 10 } = filters;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      isDeactivated: false,
+    };
+
+    if (q) {
+      where.OR = [
+        { email: { contains: q, mode: 'insensitive' } },
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { lastName: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    if (email) {
+      where.email = { contains: email, mode: 'insensitive' };
+    }
+
+    if (name) {
+      const nameParts = name.split(' ');
+      if (nameParts.length > 1) {
+        where.AND = [
+          { firstName: { contains: nameParts[0], mode: 'insensitive' } },
+          { lastName: { contains: nameParts[nameParts.length - 1], mode: 'insensitive' } },
+        ];
+      } else {
+        where.OR = [
+          { firstName: { contains: name, mode: 'insensitive' } },
+          { lastName: { contains: name, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isVerified: true,
+          avatar: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data: users,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findScheduledForDeletion() {
